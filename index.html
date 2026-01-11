@@ -8,10 +8,15 @@
     <!-- 1. 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. 載入 React 和 Babel -->
+    <!-- 2. 修正 React 在瀏覽器運作時的環境變數 (解決空白頁問題) -->
+    <script>
+        window.process = { env: { NODE_ENV: 'production' } };
+    </script>
+
+    <!-- 3. 載入 React 和 Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- 3. 自定義動畫樣式 -->
+    <!-- 4. 自定義動畫樣式 -->
     <style>
         @keyframes slideInFromRight {
             from { opacity: 0; transform: translateX(20px); }
@@ -48,8 +53,10 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
+        // 使用 esm.sh 的 React 版本
         import React, { useState, useEffect, useCallback, memo } from 'https://esm.sh/react@18.2.0';
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+        // 載入 Lucide Icons
         import { Users, Clock, Calendar, CheckCircle, RefreshCw, Copy, Plus, Trash2, MapPin, Trophy, ArrowRight, X, AlertCircle, Check, RotateCcw } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Helper: 用於讀取 LocalStorage ---
@@ -158,22 +165,18 @@
             useEffect(() => { localStorage.setItem('badminton_finalStats', JSON.stringify(finalStats)); }, [finalStats]);
 
             // --- 同步球員數量 ---
-            // 修改：使用 functional update 確保不會覆蓋已經讀取的資料，除非數量真的有變
             useEffect(() => {
                 setPlayers(prevPlayers => {
                     const currentPlayers = [...prevPlayers];
-                    // 如果目前球員少於設定人數，補上
                     if (playerCount > currentPlayers.length) {
                         for (let i = currentPlayers.length; i < playerCount; i++) {
                             currentPlayers.push({ id: `p${Math.random().toString(36).substr(2, 9)}`, name: `球員 ${i + 1}` });
                         }
                         return currentPlayers;
                     } 
-                    // 如果目前球員多於設定人數，刪減
                     else if (playerCount < currentPlayers.length) {
                         return currentPlayers.slice(0, playerCount);
                     }
-                    // 數量一樣就不動，避免不必要的重新渲染
                     return prevPlayers;
                 });
             }, [playerCount]);
@@ -387,3 +390,46 @@
                             <Plus className="w-5 h-5" /> 增加一個時段
                         </button>
                     </div>
+
+                    <div className="pt-2 space-y-3">
+                        <button onClick={() => setStep(2)} className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold shadow-lg hover:bg-slate-800 active:scale-[0.98] transition-all">
+                            下一步：設定名單
+                        </button>
+                        
+                        <button onClick={resetAllData} className="w-full py-3 text-red-400 text-sm font-bold hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center justify-center gap-2">
+                            <RotateCcw className="w-4 h-4"/> 重設所有資料 (清空存檔)
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const Step2Players = () => (
+                <div className="h-full flex flex-col animate-in">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="font-bold text-xl text-slate-800">輸入球員名字</h2>
+                        <button onClick={() => setStep(1)} className="text-sm text-slate-400 hover:text-slate-600 px-2 py-1 rounded">回上一步</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-2 pb-24 no-scrollbar">
+                        {players.map((p, idx) => (
+                            <PlayerItem 
+                                key={p.id}
+                                id={p.id}
+                                name={p.name}
+                                index={idx}
+                                onChange={handleNameChange}
+                            />
+                        ))}
+                    </div>
+                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-slate-200 z-10 sm:absolute sm:rounded-b-2xl">
+                        <button onClick={generateFullSchedule} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                            <CheckCircle className="w-5 h-5" /> 產生排程
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const Step3Result = () => (
+                <div className="pb-24 animate-in">
+                    <div className="flex gap-2 mb-6 sticky top-0 z-20 bg-slate-50 py-2">
+                        <button onClick={() => setStep(1)} className="flex-1 bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors">
+                            修改設定
