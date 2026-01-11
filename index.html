@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>羽球排排站 Pro (自動存檔版)</title>
+    
+    <!-- 1. 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. 載入 React 和 Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- 3. 自定義動畫樣式 -->
+    <style>
+        @keyframes slideInFromRight {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideInFromTop {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-in {
+            animation: slideInFromRight 0.3s ease-out forwards;
+        }
+        .slide-in-from-top-4 {
+            animation: slideInFromTop 0.3s ease-out forwards;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useCallback, memo } from 'https://esm.sh/react@18.2.0';
+        import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+        import { Users, Clock, Calendar, CheckCircle, RefreshCw, Copy, Plus, Trash2, MapPin, Trophy, ArrowRight, X, AlertCircle, Check, RotateCcw } from 'https://esm.sh/lucide-react@0.263.1';
+
+        // --- Helper: 用於讀取 LocalStorage ---
+        const loadState = (key, defaultValue) => {
+            try {
+                const saved = localStorage.getItem(key);
+                if (saved !== null) return JSON.parse(saved);
+            } catch (e) {
+                console.error("讀取存檔失敗:", e);
+            }
+            return defaultValue;
+        };
+
+        // --- 子元件 ---
+
+        const PlayerItem = memo(({ id, name, index, onChange }) => {
+            return (
+                <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                    <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-xs font-bold">{index + 1}</span>
+                    <input 
+                        type="text" 
+                        value={name} 
+                        onChange={(e) => onChange(id, e.target.value)}
+                        className="flex-1 bg-transparent outline-none font-medium text-slate-700 placeholder-slate-300"
+                        placeholder="輸入名字"
+                    />
+                </div>
+            );
+        });
+
+        const SegmentItem = memo(({ segment, index, canRemove, onUpdate, onRemove }) => {
+            return (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 relative">
+                    <div className="absolute -left-2 top-4 w-1 h-8 bg-green-400 rounded-r-full"></div>
+                    <div className="flex justify-between items-center mb-3">
+                        <span className="text-xs font-bold text-slate-400 uppercase">時段 {index + 1}</span>
+                        {canRemove && (
+                            <button onClick={() => onRemove(segment.id)} className="text-slate-400 hover:text-red-500 p-1 transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center mb-3">
+                        <input 
+                            type="time" 
+                            value={segment.startTime} 
+                            onChange={(e) => onUpdate(segment.id, 'startTime', e.target.value)}
+                            className="w-full bg-white p-2 rounded border border-slate-200 text-center font-mono text-sm focus:border-green-500 outline-none text-slate-800"
+                        />
+                        <ArrowRight className="w-4 h-4 text-slate-300" />
+                        <input 
+                            type="time" 
+                            value={segment.endTime} 
+                            onChange={(e) => onUpdate(segment.id, 'endTime', e.target.value)}
+                            className="w-full bg-white p-2 rounded border border-slate-200 text-center font-mono text-sm focus:border-green-500 outline-none text-slate-800"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-xs text-slate-500 font-bold block mb-1">場地名稱 (請用逗號分隔)</label>
+                        <input 
+                            type="text" 
+                            value={segment.courtNames} 
+                            placeholder="例如: 1, 2 或 A, B, VIP"
+                            onChange={(e) => onUpdate(segment.id, 'courtNames', e.target.value)}
+                            className="w-full bg-white p-3 rounded-lg border border-slate-200 focus:border-green-500 outline-none text-slate-700 placeholder:text-slate-300"
+                        />
+                        <div className="mt-1 text-xs text-slate-400 flex justify-between">
+                            <span>當前場地數: {segment.courtNames.split(/[,，]/).filter(s=>s.trim()).length} 面</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        });
+
+        // --- 主程式 ---
+
+        const App = () => {
+            // 使用 loadState 初始化所有 State，如果 LocalStorage 有資料就讀取，沒有就用預設值
+            const [step, setStep] = useState(() => loadState('badminton_step', 1));
+            const [gameDuration, setGameDuration] = useState(() => loadState('badminton_gameDuration', 15));
+            const [segments, setSegments] = useState(() => loadState('badminton_segments', [
+                { id: 1, startTime: '19:00', endTime: '20:00', courtNames: '1, 2' },
+                { id: 2, startTime: '20:00', endTime: '21:00', courtNames: '1' }
+            ]));
+            const [playerCount, setPlayerCount] = useState(() => loadState('badminton_playerCount', 8));
+            const [players, setPlayers] = useState(() => loadState('badminton_players', []));
+            const [schedule, setSchedule] = useState(() => loadState('badminton_schedule', []));
+            const [finalStats, setFinalStats] = useState(() => loadState('badminton_finalStats', []));
+
+            const [notification, setNotification] = useState(null);
+
+            const showNotification = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            // --- 自動儲存 Effects (當變數改變時，寫入 LocalStorage) ---
+            useEffect(() => { localStorage.setItem('badminton_step', JSON.stringify(step)); }, [step]);
+            useEffect(() => { localStorage.setItem('badminton_gameDuration', JSON.stringify(gameDuration)); }, [gameDuration]);
+            useEffect(() => { localStorage.setItem('badminton_segments', JSON.stringify(segments)); }, [segments]);
+            useEffect(() => { localStorage.setItem('badminton_playerCount', JSON.stringify(playerCount)); }, [playerCount]);
+            useEffect(() => { localStorage.setItem('badminton_players', JSON.stringify(players)); }, [players]);
+            useEffect(() => { localStorage.setItem('badminton_schedule', JSON.stringify(schedule)); }, [schedule]);
+            useEffect(() => { localStorage.setItem('badminton_finalStats', JSON.stringify(finalStats)); }, [finalStats]);
+
+            // --- 同步球員數量 ---
+            // 修改：使用 functional update 確保不會覆蓋已經讀取的資料，除非數量真的有變
+            useEffect(() => {
+                setPlayers(prevPlayers => {
+                    const currentPlayers = [...prevPlayers];
+                    // 如果目前球員少於設定人數，補上
+                    if (playerCount > currentPlayers.length) {
+                        for (let i = currentPlayers.length; i < playerCount; i++) {
+                            currentPlayers.push({ id: `p${Math.random().toString(36).substr(2, 9)}`, name: `球員 ${i + 1}` });
+                        }
+                        return currentPlayers;
+                    } 
+                    // 如果目前球員多於設定人數，刪減
+                    else if (playerCount < currentPlayers.length) {
+                        return currentPlayers.slice(0, playerCount);
+                    }
+                    // 數量一樣就不動，避免不必要的重新渲染
+                    return prevPlayers;
+                });
+            }, [playerCount]);
+
+            const handleNameChange = useCallback((id, newName) => {
+                setPlayers(prevPlayers => prevPlayers.map(p => p.id === id ? { ...p, name: newName } : p));
+            }, []);
+
+            // --- 重設所有資料 ---
+            const resetAllData = () => {
+                if (confirm('確定要清空所有資料並重設嗎？這將無法復原。')) {
+                    localStorage.clear();
+                    setStep(1);
+                    setGameDuration(15);
+                    setSegments([{ id: 1, startTime: '19:00', endTime: '20:00', courtNames: '1, 2' }, { id: 2, startTime: '20:00', endTime: '21:00', courtNames: '1' }]);
+                    setPlayerCount(8);
+                    setPlayers([]); // 設為空，useEffect 會自動補滿 8 個預設球員
+                    setSchedule([]);
+                    setFinalStats([]);
+                    showNotification("資料已重設", "success");
+                }
+            };
+
+            const addSegment = () => {
+                const lastSegment = segments[segments.length - 1];
+                const newId = (lastSegment?.id || 0) + 1;
+                let newStart = '21:00';
+                let newEnd = '22:00';
+                if (lastSegment) {
+                    newStart = lastSegment.endTime;
+                    const [h, m] = lastSegment.endTime.split(':').map(Number);
+                    const nextH = (h + 1) % 24;
+                    newEnd = `${String(nextH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                }
+
+                setSegments([...segments, { 
+                    id: newId, 
+                    startTime: newStart, 
+                    endTime: newEnd, 
+                    courtNames: lastSegment ? lastSegment.courtNames : '1' 
+                }]);
+            };
+
+            const removeSegment = useCallback((id) => {
+                setSegments(prevSegments => {
+                    if (prevSegments.length > 1) {
+                        return prevSegments.filter(s => s.id !== id);
+                    }
+                    return prevSegments;
+                });
+            }, []);
+
+            const updateSegment = useCallback((id, field, value) => {
+                setSegments(prevSegments => prevSegments.map(s => s.id === id ? { ...s, [field]: value } : s));
+            }, []);
+
+            const generateFullSchedule = () => {
+                if (players.length < 4) {
+                    showNotification("人數不足 4 人，無法進行雙打", "error");
+                    return;
+                }
+
+                let tempStats = players.map(p => ({
+                    ...p,
+                    playedCount: 0,
+                    restedCount: 0
+                }));
+
+                const generatedRounds = [];
+                let globalRoundCounter = 1;
+
+                for (const segment of segments) {
+                    const courts = segment.courtNames.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
+                    if (courts.length === 0) continue;
+
+                    const start = new Date(`2000/01/01 ${segment.startTime}`);
+                    const end = new Date(`2000/01/01 ${segment.endTime}`);
+                    if (end < start) end.setDate(end.getDate() + 1);
+                    
+                    const diffMinutes = (end - start) / (1000 * 60);
+                    const roundsInSegment = Math.floor(diffMinutes / gameDuration);
+
+                    for (let r = 0; r < roundsInSegment; r++) {
+                        const roundTime = new Date(start.getTime() + r * gameDuration * 60000);
+                        const timeStr = roundTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+                        const spotsAvailable = courts.length * 4;
+                        
+                        tempStats.sort((a, b) => {
+                            if (a.playedCount !== b.playedCount) return a.playedCount - b.playedCount;
+                            return 0.5 - Math.random();
+                        });
+
+                        const playingPlayers = tempStats.slice(0, spotsAvailable);
+                        const restingPlayers = tempStats.slice(spotsAvailable);
+
+                        if (playingPlayers.length < 4) continue; 
+
+                        playingPlayers.forEach(p => p.playedCount++);
+                        restingPlayers.forEach(p => p.restedCount++);
+
+                        const shuffledPlaying = [...playingPlayers];
+                        for (let i = shuffledPlaying.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [shuffledPlaying[i], shuffledPlaying[j]] = [shuffledPlaying[j], shuffledPlaying[i]];
+                        }
+
+                        const matches = [];
+                        let courtIndex = 0;
+                        for (let i = 0; i < shuffledPlaying.length; i += 4) {
+                            if (i + 3 < shuffledPlaying.length && courtIndex < courts.length) {
+                                matches.push({
+                                    courtName: courts[courtIndex],
+                                    team1: [shuffledPlaying[i], shuffledPlaying[i+1]],
+                                    team2: [shuffledPlaying[i+2], shuffledPlaying[i+3]]
+                                });
+                                courtIndex++;
+                            }
+                        }
+
+                        generatedRounds.push({
+                            roundNumber: globalRoundCounter++,
+                            time: timeStr,
+                            matches: matches,
+                            resting: restingPlayers.map(p => p.name)
+                        });
+                    }
+                }
+
+                setSchedule(generatedRounds);
+                setFinalStats([...tempStats].sort((a, b) => b.playedCount - a.playedCount));
+                setStep(3);
+                showNotification("排程產生成功！(已自動存檔)");
+            };
+
+            const copyToClipboard = () => {
+                let text = `🏸 羽球對戰表\n\n`;
+                text += `【統計摘要】\n`;
+                finalStats.forEach(p => {
+                    text += `${p.name}: 打 ${p.playedCount} / 休 ${p.restedCount}\n`;
+                });
+                text += `\n------------------\n`;
+
+                schedule.forEach(r => {
+                    text += `\n[第 ${r.roundNumber} 輪] ${r.time}\n`;
+                    r.matches.forEach(m => {
+                        text += `【${m.courtName}】${m.team1[0].name}+${m.team1[1].name} vs ${m.team2[0].name}+${m.team2[1].name}\n`;
+                    });
+                    if (r.resting.length > 0) {
+                        text += `(休息: ${r.resting.join(', ')})\n`;
+                    }
+                });
+
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showNotification("完整對戰表已複製到剪貼簿");
+                } catch (err) {
+                    console.error('Copy failed', err);
+                    showNotification("複製失敗，請手動複製", "error");
+                }
+                document.body.removeChild(textArea);
+            };
+
+            const Step1Setup = () => (
+                <div className="space-y-6 animate-in pb-20">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <h2 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700">
+                            <Clock className="w-5 h-5 text-blue-500"/> 基本設定
+                        </h2>
+                        <div className="mb-2">
+                            <label className="text-xs text-slate-500 font-bold block mb-1">一場時間 (含換場)</label>
+                            <select value={gameDuration} onChange={e => setGameDuration(Number(e.target.value))} className="w-full bg-slate-50 p-3 rounded-lg border border-slate-200 outline-blue-500 font-medium text-slate-700">
+                                <option value={10}>10 分鐘</option>
+                                <option value={12}>12 分鐘</option>
+                                <option value={15}>15 分鐘 (標準)</option>
+                                <option value={20}>20 分鐘</option>
+                                <option value={25}>25 分鐘</option>
+                                <option value={30}>30 分鐘</option>
+                            </select>
+                        </div>
+                        <div className="mt-4">
+                            <label className="text-xs text-slate-500 font-bold block mb-2">參加人數: {playerCount} 人</label>
+                            <div className="flex items-center gap-3">
+                                <input type="range" min="4" max="32" value={playerCount} onChange={e => setPlayerCount(Number(e.target.value))} className="flex-1 accent-blue-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"/>
+                                <span className="font-bold text-blue-600 w-8 text-center">{playerCount}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <h2 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700">
+                            <MapPin className="w-5 h-5 text-green-500"/> 時段與場地規劃
+                        </h2>
+                        <div className="space-y-4">
+                            {segments.map((seg, index) => (
+                                <SegmentItem 
+                                    key={seg.id}
+                                    segment={seg}
+                                    index={index}
+                                    canRemove={segments.length > 1}
+                                    onUpdate={updateSegment}
+                                    onRemove={removeSegment}
+                                />
+                            ))}
+                        </div>
+                        <button onClick={addSegment} className="mt-4 w-full py-3 border-2 border-dashed border-slate-300 text-slate-500 rounded-xl font-bold hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2">
+                            <Plus className="w-5 h-5" /> 增加一個時段
+                        </button>
+                    </div>
